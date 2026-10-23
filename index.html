@@ -64,14 +64,21 @@ a { color: inherit; }
 .group-count { color: var(--muted); font-size: .9rem; font-weight: 500; }
 .rows { display: flex; flex-direction: column; gap: 8px; }
 .prow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-radius: 16px; background: var(--card, var(--c-blue)); }
-.prow-main { padding: 10px 6px 10px 14px; min-height: 64px; display: flex; align-items: center; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.prow-main { padding: 10px 6px 10px 14px; min-height: 64px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.prow-sub { font-size: .85rem; font-weight: 500; color: rgba(255,255,255,.88); font-variant-numeric: tabular-nums; }
+.prow { box-shadow: inset 0 0 0 3px transparent; }
+.prow[data-phase="running"] { box-shadow: inset 0 0 0 3px var(--ok); }
+.prow-act { grid-column: 1 / -1; display: flex; gap: 8px; padding: 0 10px 10px; }
+.prow-act .btn { min-height: 48px; flex: 1; }
+.prow-act .btn-cancel { flex: none; min-width: 56px; }
+.step-count small { display: block; font-size: .7rem; font-weight: 500; opacity: .9; }
 .prow.is-empty .prow-main { opacity: .8; }
 .stepper { display: flex; align-items: center; gap: 4px; padding: 0 10px 0 0; }
 .step { all: unset; box-sizing: border-box; cursor: pointer; width: 46px; height: 46px; border-radius: 14px; text-align: center;
   background: rgba(8,12,24,.45); font-size: 1.5rem; font-weight: 700; line-height: 46px; color: var(--text); }
 .step:disabled { opacity: .35; cursor: default; }
 .step:focus-visible { outline: 3px solid var(--warn); }
-.step-count { all: unset; box-sizing: border-box; cursor: pointer; min-width: 52px; min-height: 46px; display: grid; place-items: center;
+.step-count { all: unset; box-sizing: border-box; cursor: pointer; min-width: 58px; min-height: 46px; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.05; text-align: center;
   border-radius: 12px; font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; }
 .step-count:disabled { cursor: default; opacity: .6; }
 
@@ -205,7 +212,7 @@ a { color: inherit; }
   const T = (global.Turnos = global.Turnos || {});
 
   const SCHEMA_VERSION = 4;
-  const KINDS = { once: 'Una vez por turno', multi: 'Varias veces por turno', pallet: 'Tarimas (contador)' };
+  const KINDS = { once: 'Una vez por turno', multi: 'Varias veces por turno', pallet: 'Tarimas (contador y tiempo)' };
   const COLORS = { blue: 'Azul', green: 'Verde', amber: 'Ámbar', sky: 'Celeste', red: 'Rojo', teal: 'Verde azulado' };
   const DAY_LABELS = [['1', 'L'], ['2', 'M'], ['3', 'X'], ['4', 'J'], ['5', 'V'], ['6', 'S'], ['0', 'D']];
 
@@ -482,7 +489,7 @@ a { color: inherit; }
   }
 
   // ---------- construcción de estado ----------
-  const newActivityState = (def) => ({ id: def.id, status: 'pending', runStartedAt: null, runs: [], received: 0 });
+  const newActivityState = (def) => ({ id: def.id, status: 'pending', runStartedAt: null, runs: [], received: 0, processed: 0 });
 
   function createShift(settings) {
     const startedAt = Date.now();
@@ -511,8 +518,8 @@ a { color: inherit; }
       delete A.sw; delete A.custSw; delete A.customerActive; delete A.customerMs; delete A.customerPauses; delete A.limitMs; delete A.warnMs;
       A.runs = A.runs || [];
       A.received = A.received || 0;
+      A.processed = A.processed || 0;
       const def = ((shift.config && shift.config.activities) || []).find((d) => d.id === A.id);
-      if (def && def.kind === 'pallet' && A.status === 'running') { A.status = 'pending'; A.runStartedAt = null; }
       if (A.status === 'running' && !A.runStartedAt) A.runStartedAt = Date.now();
     }
   }
@@ -559,7 +566,9 @@ a { color: inherit; }
     A.runs.push({ n: A.runs.length + 1, startedAt, endedAt, durationMs, outcome: 'done' });
     A.status = def.kind === 'once' ? 'done' : 'pending';
     A.runStartedAt = null;
-    record('DONE', { activityId: A.id, ts: endedAt, parts: [nm(def), `${F.clock(startedAt)} - ${F.clock(endedAt)}`, F.dur(durationMs), note] });
+    let extra = null;
+    if (def.kind === 'pallet') { A.processed = (A.processed || 0) + 1; extra = `Pendientes ${A.received - A.processed} de ${A.received}`; }
+    record('DONE', { activityId: A.id, ts: endedAt, parts: [nm(def), `${F.clock(startedAt)} - ${F.clock(endedAt)}`, F.dur(durationMs), extra, note] });
   }
 
   function endShift() {
@@ -590,8 +599,8 @@ a { color: inherit; }
     if (!active()) return fail('Inicia el turno primero');
     const def = defOf(id); const A = state.shift.activities[id];
     if (!def || !A) return fail('Actividad desconocida');
-    if (def.kind === 'pallet') return fail('Las tarimas se registran con + y −');
     if (A.status === 'running') return ok(); // idempotente
+    if (def.kind === 'pallet' && A.received - A.processed <= 0) return fail('No hay tarimas pendientes: registra la llegada con +');
     if (def.kind === 'once' && A.status === 'done') return fail('Esta actividad ya está terminada');
     A.status = 'running';
     A.runStartedAt = Date.now();
@@ -637,6 +646,8 @@ a { color: inherit; }
     const def = defOf(id); const A = state.shift.activities[id];
     if (!def || !A || def.kind !== 'pallet') return fail('Actividad desconocida');
     if (!Number.isInteger(total) || total < 0 || total > 999) return fail('Cantidad no válida');
+    const min = (A.processed || 0) + (A.status === 'running' ? 1 : 0);
+    if (total < min) return fail(A.status === 'running' && total === (A.processed || 0) ? 'La tarima en curso no se puede quitar; cancela la actividad primero' : `Ya guardaste ${A.processed || 0}; el total no puede ser menor`);
     const delta = total - A.received;
     if (delta === 0) return ok();
     A.received = total;
@@ -717,8 +728,9 @@ a { color: inherit; }
       startedAt: running ? A.runStartedAt : null,
       totalMs: doneRuns.reduce((n, r) => n + runMs(r), 0),
       received: A ? A.received : 0,
+      pending: A && def.kind === 'pallet' ? A.received - (A.processed || 0) : 0,
       scheduled: Config.isScheduled(def, state.shift ? state.shift.startedAt : Date.now()),
-      canStart: !!A && !running && def.kind !== 'pallet' && (def.kind === 'multi' || A.status === 'pending'),
+      canStart: !!A && !running && (def.kind === 'pallet' ? A.received - (A.processed || 0) > 0 : (def.kind === 'multi' || A.status === 'pending')),
     };
   }
 
@@ -729,7 +741,8 @@ a { color: inherit; }
     const isDone = (d) => { const A = S && S.activities[d.id]; return !!A && (d.kind === 'once' ? A.status === 'done' : validRuns(A).length > 0); };
     const done = required.filter(isDone).length;
     const palletsTotal = S ? state.settings.activities.filter((d) => d.kind === 'pallet').reduce((n, d) => n + (S.activities[d.id] ? S.activities[d.id].received : 0), 0) : 0;
-    return { done, total: required.length, percent: required.length ? Math.round((done / required.length) * 100) : 0, palletsTotal };
+    const palletsProcessed = S ? state.settings.activities.filter((d) => d.kind === 'pallet').reduce((n, d) => n + (S.activities[d.id] ? (S.activities[d.id].processed || 0) : 0), 0) : 0;
+    return { done, total: required.length, percent: required.length ? Math.round((done / required.length) * 100) : 0, palletsTotal, palletsProcessed };
   }
 
   /** Atención al cliente: un toque la inicia, otro la termina. Queda con hora de inicio y fin. */
@@ -789,7 +802,6 @@ a { color: inherit; }
   function timeline(shift) {
     const items = [];
     for (const def of shift.config.activities) {
-      if (def.kind === 'pallet') continue;
       const A = shift.activities[def.id];
       if (!A) continue;
       A.runs.filter((r) => r.outcome === 'done' && !r.superseded).forEach((r) => items.push({ icon: def.icon, name: nm(def), startedAt: r.startedAt, endedAt: r.endedAt, customers: [] }));
@@ -999,7 +1011,7 @@ a { color: inherit; }
       ? h('section', { class: 'panel progress' },
           h('div', { class: 'progress-row' }, h('span', {}, `${prog.percent}% de actividades programadas`), h('span', { class: 'count' }, `${prog.done}/${prog.total}`)),
           h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(prog.percent) }, h('span', { style: `width:${prog.percent}%` })),
-          h('div', { class: 'progress-row' }, h('span', {}, '📦 Tarimas recibidas'), h('span', { class: 'count' }, String(prog.palletsTotal))),
+          h('div', { class: 'progress-row' }, h('span', {}, `📦 Tarimas por guardar: ${prog.palletsTotal - prog.palletsProcessed}`), h('span', { class: 'count' }, `${prog.palletsProcessed}/${prog.palletsTotal}`)),
           h('p', { class: 'meta' }, `Turno iniciado a las ${F.clock(S.startedAt)}`))
       : h('section', { class: 'panel start-panel' },
           h('p', {}, 'No hay turno activo. Inicia el turno para registrar actividades.'),
@@ -1043,8 +1055,8 @@ a { color: inherit; }
     const cards = views.filter((v) => v.def.kind !== 'pallet');
     const rows = views.filter((v) => v.def.kind === 'pallet');
     const doneCount = cards.filter((v) => v.phase === 'done' || (v.def.kind === 'multi' && v.doneRuns.length > 0)).length;
-    const total = rows.reduce((n, v) => n + v.received, 0);
-    const counter = cards.length && !rows.length ? `${doneCount}/${cards.length}` : rows.length ? `${total} tarimas` : '';
+    const pendingSum = rows.reduce((n, v) => n + v.pending, 0);
+    const counter = cards.length && !rows.length ? `${doneCount}/${cards.length}` : rows.length ? `${pendingSum} pendientes` : '';
     return h('section', { class: 'group' },
       h('h2', { class: 'group-title' }, name, counter ? h('span', { class: 'group-count' }, counter) : null),
       cards.length ? h('div', { class: 'grid' }, cards.map(activityCard)) : null,
@@ -1064,13 +1076,27 @@ a { color: inherit; }
 
   function palletRow(v) {
     const d = v.def;
+    const A = v.A;
     const hasShift = !!state.shift;
-    return h('div', { class: `prow c-${d.color}${v.received === 0 ? ' is-empty' : ''}` },
-      h('div', { class: 'prow-main' }, h('span', {}, h('span', { 'aria-hidden': 'true' }, `${d.icon} `), d.name)),
+    const free = A ? A.received - (A.processed || 0) - (v.running ? 1 : 0) : 0;
+    const sub = v.running ? `▶ desde ${F.clock(v.startedAt)}` : A && A.received > 0 ? `${A.processed || 0} guardadas de ${A.received}` : 'sin tarimas';
+    let act = null;
+    if (hasShift && v.running) {
+      act = h('div', { class: 'prow-act' },
+        h('button', { class: 'btn btn-ok', type: 'button', dataset: { action: 'finish', id: d.id } }, '✅ Listo (marcar fin)'),
+        h('button', { class: 'btn btn-ghost btn-danger-line btn-cancel', type: 'button', 'aria-label': `Cancelar tarima de ${d.name}`, dataset: { action: 'cancel', id: d.id } }, '✖'));
+    } else if (hasShift && v.canStart) {
+      act = h('div', { class: 'prow-act' },
+        h('button', { class: 'btn btn-primary', type: 'button', dataset: { action: 'start', id: d.id } }, `▶ Iniciar tarima de ${d.name}`));
+    }
+    return h('div', { class: `prow c-${d.color}${v.received === 0 ? ' is-empty' : ''}`, dataset: { phase: v.phase } },
+      h('div', { class: 'prow-main' }, h('span', {}, h('span', { 'aria-hidden': 'true' }, `${d.icon} `), d.name), h('span', { class: 'prow-sub' }, sub)),
       h('div', { class: 'stepper' },
-        h('button', { class: 'step', type: 'button', disabled: !hasShift || v.received <= 0, 'aria-label': `Quitar una tarima de ${d.name} (corrección)`, dataset: { action: 'dec', id: d.id } }, '−'),
-        h('button', { class: 'step-count', type: 'button', disabled: !hasShift, 'aria-label': `${v.received} tarimas de ${d.name}. Tocar para contar`, dataset: { action: 'set-count', id: d.id } }, String(v.received)),
-        h('button', { class: 'step', type: 'button', disabled: !hasShift, 'aria-label': `Llegó una tarima de ${d.name}`, dataset: { action: 'inc', id: d.id } }, '+')));
+        h('button', { class: 'step', type: 'button', disabled: !hasShift || free <= 0, 'aria-label': `Quitar una tarima de ${d.name} (corrección)`, dataset: { action: 'dec', id: d.id } }, '−'),
+        h('button', { class: 'step-count', type: 'button', disabled: !hasShift, 'aria-label': A ? `${v.pending} pendientes de ${A.received} recibidas. Tocar para contar` : 'Sin turno', dataset: { action: 'set-count', id: d.id } },
+          h('strong', {}, A && A.received > 0 ? String(v.pending) : '—'), A && A.received > 0 ? h('small', {}, `de ${A.received}`) : null),
+        h('button', { class: 'step', type: 'button', disabled: !hasShift, 'aria-label': `Llegó una tarima de ${d.name}`, dataset: { action: 'inc', id: d.id } }, '+')),
+      act);
   }
 
   function viewActivity(id) {
@@ -1198,7 +1224,7 @@ a { color: inherit; }
         h('datalist', { id: 'a-groups' }, groups.map((g) => h('option', { value: g }))),
         h('label', { for: 'a-kind' }, 'Tipo'),
         h('select', { id: 'a-kind', name: 'kind' }, Object.entries(Config.KINDS).map(([k, label]) => h('option', { value: k, selected: d.kind === k }, label))),
-        h('p', { class: 'meta' }, 'Una vez: surtido, frenteo. Varias veces: descanso, Taurus, sacar reciclado. Tarimas: solo cuenta tarimas por departamento.'),
+        h('p', { class: 'meta' }, 'Una vez: surtido, frenteo. Varias veces: descanso, Taurus, sacar reciclado. Tarimas: cuenta las tarimas del departamento y mide cada una.'),
         h('label', { for: 'a-icon' }, 'Icono (un emoji)'),
         h('input', { id: 'a-icon', name: 'icon', type: 'text', maxlength: '8', value: d.icon, list: 'a-emojis' }),
         h('datalist', { id: 'a-emojis' }, emojis.map((e) => h('option', { value: e }))),
@@ -1277,7 +1303,7 @@ a { color: inherit; }
       case 'dec': report(Store.adjustArrivals(id, -1)); break;
       case 'set-count': {
         const v = Store.activityView(id);
-        const n = await numberDialog({ title: `Tarimas de ${v.def.name}`, message: '¿Cuántas tarimas hay en total?', value: v.received });
+        const n = await numberDialog({ title: `Tarimas de ${v.def.name}`, message: `¿Cuántas tarimas recibidas hay en total? (ya guardadas: ${v.A.processed || 0})`, value: v.received });
         if (n !== null) report(Store.setReceived(id, n));
         break;
       }

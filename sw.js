@@ -1,5 +1,5 @@
 /* Service worker: deja la app disponible sin internet. */
-const CACHE = 'turnos-v4-2';
+const CACHE = 'turnos-v4-3';
 const FILES = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
