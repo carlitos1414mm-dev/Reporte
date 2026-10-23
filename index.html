@@ -1,0 +1,1398 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Control de turnos</title>
+<meta name="theme-color" content="#0c121d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Turnos">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+/* Interfaz oscura, compacta, pensada primero para teléfono. */
+:root {
+  --bg: #0c121d; --surface: #16203f; --surface-2: #111a2e; --line: #2a3a63;
+  --text: #f1f4fb; --muted: #a6b2cf; --ok: #5fd6a3; --warn: #f5c04a; --bad: #ff7a7a;
+  --accent: #f0a43c; --accent-ink: #1b1204;
+  --c-blue: #3f6786; --c-green: #4f7238; --c-amber: #7a6a3a; --c-sky: #35627f; --c-red: #7a3347; --c-teal: #2b5a60;
+  --radius: 20px; --gap: 12px; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; min-height: 100dvh; }
+.app { max-width: 480px; margin: 0 auto;
+  padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+h1, h2 { margin: 0; line-height: 1.2; text-wrap: balance; }
+h1 { font-size: 1.5rem; } h2 { font-size: 1.05rem; margin-top: 4px; }
+a { color: inherit; }
+.loading, .empty { color: var(--muted); text-align: center; padding: 24px 8px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+.screen { display: flex; flex-direction: column; gap: var(--gap); }
+.panel { background: var(--surface); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.meta { margin: 0; color: var(--muted); font-size: .9rem; }
+.center { text-align: center; }
+.home-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; padding: 4px 4px 0; }
+.cats { margin: 4px 0 0; color: var(--muted); font-size: .92rem; }
+.clock { color: var(--muted); font-size: 1.1rem; padding-top: 6px; font-variant-numeric: tabular-nums; }
+.progress-row { display: flex; justify-content: space-between; color: var(--muted); }
+.progress-row .count { color: var(--ok); font-weight: 600; }
+.bar { height: 10px; border-radius: 6px; background: var(--surface-2); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--ok); border-radius: 6px; transition: width .3s; }
+.start-panel p { margin: 0; color: var(--muted); }
+
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); }
+.card { border-radius: var(--radius); background: var(--card, var(--c-blue)); display: flex; flex-direction: column; min-width: 0; box-shadow: inset 0 0 0 3px transparent; }
+.c-blue { --card: var(--c-blue); } .c-green { --card: var(--c-green); } .c-amber { --card: var(--c-amber); }
+.c-sky { --card: var(--c-sky); } .c-red { --card: var(--c-red); } .c-teal { --card: var(--c-teal); }
+.card-main { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+  padding: 14px 14px 12px; min-height: 124px; flex: 1; border-radius: var(--radius); min-width: 0; }
+.card-main:focus-visible { outline: 3px solid var(--warn); outline-offset: -3px; }
+.card-main:disabled { cursor: default; opacity: .6; }
+.card-icon { font-size: 1.5rem; line-height: 1; }
+.card-name { font-weight: 700; font-size: 1.05rem; margin-top: 6px; overflow-wrap: anywhere; }
+.card-limit { font-size: .85rem; color: rgba(255,255,255,.85); }
+.card-status { margin-top: auto; padding-top: 8px; font-weight: 700; font-size: .95rem; font-variant-numeric: tabular-nums; }
+.card[data-phase="running"] { box-shadow: inset 0 0 0 3px var(--ok); }
+.card[data-phase="done"] { box-shadow: inset 0 0 0 3px rgba(95,214,163,.55); }
+
+.group { display: flex; flex-direction: column; gap: 8px; }
+.group-title { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 4px 0; font-size: 1.05rem; letter-spacing: .02em; }
+.group-count { color: var(--muted); font-size: .9rem; font-weight: 500; }
+.rows { display: flex; flex-direction: column; gap: 8px; }
+.prow { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; border-radius: 16px; background: var(--card, var(--c-blue)); }
+.prow-main { padding: 10px 6px 10px 14px; min-height: 64px; display: flex; align-items: center; min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+.prow.is-empty .prow-main { opacity: .8; }
+.stepper { display: flex; align-items: center; gap: 4px; padding: 0 10px 0 0; }
+.step { all: unset; box-sizing: border-box; cursor: pointer; width: 46px; height: 46px; border-radius: 14px; text-align: center;
+  background: rgba(8,12,24,.45); font-size: 1.5rem; font-weight: 700; line-height: 46px; color: var(--text); }
+.step:disabled { opacity: .35; cursor: default; }
+.step:focus-visible { outline: 3px solid var(--warn); }
+.step-count { all: unset; box-sizing: border-box; cursor: pointer; min-width: 52px; min-height: 46px; display: grid; place-items: center;
+  border-radius: 12px; font-size: 1.4rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.step-count:disabled { cursor: default; opacity: .6; }
+
+.btn { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; justify-content: center; text-align: center; gap: 8px;
+  min-height: 52px; padding: 10px 16px; border-radius: 16px; font-weight: 700; background: var(--c-blue); color: #fff; }
+.btn:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+.btn-big { min-height: 64px; font-size: 1.15rem; }
+.btn-wide { width: 100%; }
+.btn-primary { background: #2f7f6c; } .btn-ok { background: #2d8266; }
+.btn-accent { background: var(--accent); color: var(--accent-ink); }
+.btn-danger { background: #a63a3a; }
+.btn-ghost { background: transparent; box-shadow: inset 0 0 0 2px var(--line); color: var(--muted); font-weight: 600; }
+.btn-warnline { color: #ffd9a0; box-shadow: inset 0 0 0 2px #7d5a22; }
+.btn-danger-line { color: #ffb4b4; box-shadow: inset 0 0 0 2px #7d3030; }
+.nav { display: flex; flex-direction: column; gap: var(--gap); }
+.nav-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+.chip { all: unset; cursor: pointer; padding: 6px 12px; border-radius: 999px; box-shadow: inset 0 0 0 2px var(--line); color: var(--muted); font-size: .85rem; }
+.iconbtn { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 14px; background: var(--surface); text-decoration: none; font-size: 1.3rem; flex: none; }
+.topbar { display: flex; align-items: center; gap: 12px; }
+
+.time-panel { align-items: stretch; padding: 22px 16px; gap: 6px; }
+.time-panel h1 { text-align: center; }
+.time-big { text-align: center; font-size: clamp(2.6rem, 16vw, 4rem); font-weight: 800; line-height: 1.1; color: var(--ok); font-variant-numeric: tabular-nums; }
+.time-panel[data-phase="pending"] .time-big, .time-panel[data-phase="done"] .time-big { color: var(--text); }
+.time-label { text-align: center; font-weight: 700; letter-spacing: .08em; font-size: .85rem; color: var(--muted); }
+.time-sub { text-align: center; color: var(--muted); font-size: .95rem; min-height: 1.4em; }
+.actions { display: flex; flex-direction: column; gap: var(--gap); margin-top: 14px; }
+.runs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.runs li { display: flex; justify-content: space-between; gap: 8px; padding: 8px 12px; border-radius: 12px; background: var(--surface-2); font-variant-numeric: tabular-nums; }
+.run-muted { color: var(--muted); }
+
+.log-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.log { list-style: none; margin: 0; padding: 12px; border-radius: 16px; background: var(--surface-2); display: flex; flex-direction: column; gap: 10px; max-height: 55dvh; overflow-y: auto; }
+.log li { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: baseline; }
+.log time { color: var(--muted); font-size: .9rem; font-variant-numeric: tabular-nums; }
+.log-text { overflow-wrap: anywhere; }
+.log-ok strong { color: var(--ok); } .log-warn strong { color: var(--warn); } .log-bad strong { color: var(--bad); }
+.history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.history a { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); text-decoration: none; min-height: 52px; }
+.history span { color: var(--muted); font-size: .9rem; }
+
+.form label { color: var(--muted); font-size: .9rem; }
+.form input[type="text"], .form input[type="number"], .form select {
+  width: 100%; min-height: 48px; padding: 8px 12px; border-radius: 12px; border: 2px solid var(--line); background: var(--surface-2); color: var(--text); font: inherit; }
+.form .check { display: flex; align-items: center; gap: 10px; color: var(--text); }
+.form .check input { width: 24px; height: 24px; flex: none; }
+.days { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.days legend { color: var(--muted); font-size: .9rem; padding: 0 0 6px; }
+.day { position: relative; }
+.day input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.day span { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; border: 2px solid var(--line); color: var(--muted); font-weight: 700; }
+.day input:checked + span { background: var(--c-blue); border-color: var(--c-blue); color: #fff; }
+.day input:focus-visible + span { outline: 3px solid var(--warn); }
+.edit-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.edit-list li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; background: var(--surface-2); border-radius: 14px; padding: 4px 8px 4px 0; }
+.edit-main { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; text-decoration: none; min-height: 56px; justify-content: center; }
+.edit-main span { color: var(--muted); font-size: .85rem; }
+.edit-move { display: flex; gap: 6px; }
+.edit-move .step { background: var(--surface); }
+
+.banner { padding: 10px 14px; border-radius: 14px; margin-bottom: var(--gap); font-size: .92rem; }
+.banner-bad { background: #4a1f26; color: #ffd0d0; }
+.toasts { position: fixed; left: 0; right: 0; bottom: max(16px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 16px; pointer-events: none; z-index: 20; }
+.toast { background: #202c52; color: var(--text); padding: 12px 16px; border-radius: 14px; box-shadow: 0 6px 20px rgba(0,0,0,.5); max-width: 440px; font-weight: 600; }
+.toast-ok { box-shadow: inset 0 0 0 2px var(--ok), 0 6px 20px rgba(0,0,0,.5); }
+.toast-warn { box-shadow: inset 0 0 0 2px var(--warn), 0 6px 20px rgba(0,0,0,.5); }
+.toast-bad { box-shadow: inset 0 0 0 2px var(--bad), 0 6px 20px rgba(0,0,0,.5); }
+.dialog { border: 0; border-radius: var(--radius); background: var(--surface); color: var(--text); padding: 20px; width: min(92vw, 420px); }
+.dialog::backdrop { background: rgba(0,0,0,.65); }
+.dialog p { color: var(--muted); }
+.dialog-actions { display: flex; gap: var(--gap); margin-top: 8px; }
+.dialog-actions .btn { flex: 1; }
+.dialog-actions .dlg-first { order: 2; }
+.num-input { width: 100%; min-height: 56px; font: inherit; font-size: 1.5rem; text-align: center; border-radius: 12px; border: 2px solid var(--line); background: var(--surface-2); color: var(--text); }
+.cust-bar { all: unset; box-sizing: border-box; cursor: pointer; display: block; width: 100%; padding: 14px 16px; min-height: 56px; border-radius: 16px; background: var(--surface); box-shadow: inset 0 0 0 2px var(--line); font-weight: 700; text-align: center; font-variant-numeric: tabular-nums; }
+.cust-bar.on { background: #5a4a86; box-shadow: inset 0 0 0 3px #b9a7ff; }
+.cust-bar:focus-visible { outline: 3px solid var(--warn); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<div id="app" class="app"><p class="loading">Cargando…</p></div>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+<dialog id="confirm" class="dialog">
+  <form method="dialog">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-text"></p>
+    <div class="dialog-actions">
+      <button type="submit" value="cancel" class="btn btn-ghost">Cancelar</button>
+      <button type="submit" value="ok" class="btn btn-primary" id="confirm-yes">Aceptar</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="number-dialog" class="dialog">
+  <form method="dialog">
+    <h2 id="number-title"></h2>
+    <p id="number-text"></p>
+    <label class="sr" for="number-input">Cantidad</label>
+    <input id="number-input" class="num-input" type="number" inputmode="numeric" min="0" max="999" step="1">
+    <div class="dialog-actions">
+      <button type="submit" value="ok" class="btn btn-primary dlg-first">Aceptar</button>
+      <button type="submit" value="cancel" class="btn btn-ghost" formnovalidate>Cancelar</button>
+    </div>
+  </form>
+</dialog>
+<noscript>Esta aplicación necesita JavaScript.</noscript>
+
+<script>
+/* Formato de horas y duraciones (sin dependencias). */
+(function (global) {
+  'use strict';
+  const T = (global.Turnos = global.Turnos || {});
+  const pad = (n) => String(n).padStart(2, '0');
+  const clock = (ts) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const time = (ts) => { const d = new Date(ts); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+  const dateISO = (ts) => { const d = new Date(ts); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const dateTime = (ts) => `${dateISO(ts)} ${clock(ts)}`;
+  /** ms -> "15 min" / "1 h 05 min" (redondea al minuto más cercano). */
+  function dur(ms) {
+    const m = Math.round(Math.max(0, ms) / 60000);
+    if (m < 1) return '<1 min';
+    if (m < 60) return `${m} min`;
+    return `${Math.floor(m / 60)} h ${pad(m % 60)} min`;
+  }
+  T.Format = { pad, clock, time, dateISO, dateTime, dur };
+})(window);
+
+/* Configuración: actividades editables y ajustes generales. */
+(function (global) {
+  'use strict';
+  const T = (global.Turnos = global.Turnos || {});
+
+  const SCHEMA_VERSION = 4;
+  const KINDS = { once: 'Una vez por turno', multi: 'Varias veces por turno', pallet: 'Tarimas (contador)' };
+  const COLORS = { blue: 'Azul', green: 'Verde', amber: 'Ámbar', sky: 'Celeste', red: 'Rojo', teal: 'Verde azulado' };
+  const DAY_LABELS = [['1', 'L'], ['2', 'M'], ['3', 'X'], ['4', 'J'], ['5', 'V'], ['6', 'S'], ['0', 'D']];
+
+  const act = (id, name, group, kind, icon, color, extra) => ({ id, name, group, kind, icon, color, days: [], optional: false, ...(extra || {}) });
+  const GP = 'Tarimas por guardar';
+  // Actividades añadidas por versión (se agregan solas a quien ya tenía la lista anterior, una sola vez).
+  const ADDED = { 2: ['sacar-reciclado', 'limpieza-bodega', 'descanso', 'ley-silla', 'banos'], 3: ['banos'] };
+
+  const DEFAULT_SETTINGS = {
+    schemaVersion: SCHEMA_VERSION,
+    areaName: 'ÁREA 1',
+    categories: ['Perecederos', 'Aves', 'Carnes', 'Pescadería', 'Lácteos', 'Congelados'],
+    activities: [
+      act('surtido-exh-huevo', 'Surtido exhibición de huevo', 'Surtido', 'once', '🥚', 'amber'),
+      act('surtido-exh-leche', 'Surtido exhibición de leche', 'Surtido', 'once', '🥛', 'sky'),
+      act('surtido-pasillo', 'Surtido pasillo', 'Surtido', 'once', '🛒', 'blue'),
+      act('surtido-devoluciones', 'Surtido devoluciones', 'Surtido', 'once', '↩️', 'teal'),
+      act('surtido-lacteos', 'Surtido lácteos', 'Surtido', 'once', '🧈', 'sky'),
+      act('frenteo-congelados', 'Frenteo de congelados', 'Frenteo y ofertas', 'once', '🧊', 'green'),
+      act('ofertas', 'Colocación de ofertas y rótulos', 'Frenteo y ofertas', 'once', '🏷️', 'red', { days: [1, 4] }),
+      act('taurus', 'Descarga de Taurus', 'Camión', 'multi', '🚛', 'blue', { optional: true }),
+      act('reciclado', 'Carga de reciclado', 'Camión', 'multi', '♻️', 'green', { optional: true }),
+      act('sacar-reciclado', 'Sacar reciclado', 'Camión', 'multi', '🗑️', 'teal', { optional: true }),
+      act('limpieza-bodega', 'Limpieza de bodega', 'Bodega', 'once', '🧹', 'sky', { optional: true }),
+      act('conteo-plan', 'Conteo de tarimas y plan', 'Plan', 'once', '🧮', 'teal'),
+      act('descanso', 'Descanso', 'Personal', 'multi', '☕', 'blue', { optional: true }),
+      act('ley-silla', 'Ley silla', 'Personal', 'multi', '🪑', 'amber', { optional: true }),
+      act('banos', 'Ida al baño', 'Personal', 'multi', '🚻', 'sky', { optional: true }),
+      act('pal-cocina', 'Cocina', GP, 'pallet', '🍳', 'amber'),
+      act('pal-aves', 'Aves', GP, 'pallet', '🍗', 'red'),
+      act('pal-carnes', 'Carnes', GP, 'pallet', '🥩', 'red'),
+      act('pal-salchi', 'Salchichonería', GP, 'pallet', '🌭', 'red'),
+      act('pal-lacteos', 'Lácteos', GP, 'pallet', '🥛', 'sky'),
+      act('pal-pan', 'Pan', GP, 'pallet', '🍞', 'amber'),
+      act('pal-congelados', 'Congelados', GP, 'pallet', '🧊', 'teal'),
+      act('pal-leche-hut', 'Leche Hut', GP, 'pallet', '🥛', 'blue'),
+      act('pal-huevo', 'Huevo', GP, 'pallet', '🥚', 'amber'),
+      act('pal-pescaderia', 'Pescadería', GP, 'pallet', '🐟', 'teal'),
+      act('pal-proveduria', 'Proveeduría', GP, 'pallet', '📦', 'blue'),
+      act('pal-tortilleria', 'Tortillería', GP, 'pallet', '🫓', 'green'),
+      act('pal-panaderia', 'Panadería', GP, 'pallet', '🥐', 'amber'),
+    ],
+  };
+
+  const clone = (o) => structuredClone(o);
+  const newId = () => `a-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+  const displayName = (def) => (def.kind === 'pallet' && !/^tarima/i.test(def.name) ? `Tarima ${def.name}` : def.name);
+  const isScheduled = (def, ts) => !def.days || !def.days.length || def.days.includes(new Date(ts).getDay());
+
+  function sanitizeActivity(raw, usedIds) {
+    if (!raw || typeof raw !== 'object') return null;
+    const name = String(raw.name || '').trim().slice(0, 40);
+    if (!name) return null;
+    let id = String(raw.id || '').trim();
+    if (!/^[a-zA-Z0-9_-]{1,48}$/.test(id) || (usedIds && usedIds.has(id))) id = newId();
+    const days = Array.isArray(raw.days) ? [...new Set(raw.days.map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n <= 6))].sort() : [];
+    return {
+      id, name,
+      group: String(raw.group || '').trim().slice(0, 30) || 'Otras actividades',
+      kind: KINDS[raw.kind] ? raw.kind : 'once',
+      icon: String(raw.icon || '').trim().slice(0, 8) || '•',
+      color: COLORS[raw.color] ? raw.color : 'blue',
+      days: days.length === 7 ? [] : days,
+      optional: !!raw.optional,
+    };
+  }
+
+  /** Valida ajustes leídos de disco o del formulario. Migra la lista de la versión 2 conservando tus cambios. */
+  function sanitize(raw) {
+    const out = clone(DEFAULT_SETTINGS);
+    if (!raw || typeof raw !== 'object') return out;
+    if (typeof raw.areaName === 'string' && raw.areaName.trim()) out.areaName = raw.areaName.trim().slice(0, 40);
+    if (Array.isArray(raw.categories)) out.categories = raw.categories.map((s) => String(s).trim()).filter(Boolean).slice(0, 20);
+    if ([2, 3, SCHEMA_VERSION].includes(raw.schemaVersion) && Array.isArray(raw.activities)) {
+      const used = new Set();
+      const list = raw.activities.map((a) => {
+        if (a && a.id === 'reciclado' && a.name === 'Reciclado (llenar tráiler)') a = { ...a, name: 'Carga de reciclado' };
+        const d = sanitizeActivity(a, used);
+        if (d) used.add(d.id);
+        return d;
+      }).filter(Boolean);
+      if (raw.schemaVersion < SCHEMA_VERSION) {
+        // «Colocación de rótulos» era lo mismo que «Colocación de ofertas»: queda una sola.
+        const kept = list.filter((d) => d.id !== 'rotulos').map((d) => (d.id === 'ofertas' && d.name === 'Colocación de ofertas' ? { ...d, name: 'Colocación de ofertas y rótulos' } : d));
+        const keptIds = new Set(kept.map((d) => d.id));
+        const add = ADDED[raw.schemaVersion] || [];
+        const fresh = DEFAULT_SETTINGS.activities.filter((d) => add.includes(d.id) && !keptIds.has(d.id)).map(clone);
+        out.activities = kept.filter((d) => d.kind !== 'pallet').concat(fresh, kept.filter((d) => d.kind === 'pallet'));
+      } else out.activities = list;
+    }
+    return out;
+  }
+
+  T.Config = { SCHEMA_VERSION, KINDS, COLORS, DAY_LABELS, DEFAULT_SETTINGS, sanitize, sanitizeActivity, displayName, isScheduled, newId, clone };
+})(window);
+
+/* Bitácora: tipos de evento. Los eventos son de solo-añadir. */
+(function (global) {
+  'use strict';
+  const T = (global.Turnos = global.Turnos || {});
+  const F = T.Format;
+
+  const TYPES = {
+    SHIFT_START: { label: 'TURNO INICIA', icon: '🟢', tone: 'info' },
+    SHIFT_END: { label: 'TURNO TERMINA', icon: '🏁', tone: 'info' },
+    START: { label: 'INICIA', icon: '▶️', tone: 'info' },
+    DONE: { label: 'LISTO', icon: '✅', tone: 'ok' },
+    ARRIVAL: { label: 'LLEGADA', icon: '🚚', tone: 'info' },
+    CORRECTION: { label: 'CORRECCIÓN', icon: '✏️', tone: 'warn' },
+    CANCEL: { label: 'CANCELADA', icon: '✖️', tone: 'warn' },
+    REOPEN: { label: 'REABIERTA', icon: '↺', tone: 'warn' },
+    EXPORT: { label: 'EXPORTA', icon: '📄', tone: 'info' },
+    // Eventos de versiones anteriores (para turnos viejos en el historial)
+    CUSTOMER: { label: 'ATENCIÓN AL CLIENTE', icon: '👤', tone: 'info' },
+    LIMIT_WARN: { label: 'AVISO', icon: '⚠️', tone: 'warn' },
+    LIMIT_EXCEEDED: { label: 'LÍMITE EXCEDIDO', icon: '🔴', tone: 'bad' },
+    RESUME: { label: 'APP REABIERTA', icon: '🔁', tone: 'info' },
+    DEADLINE: { label: 'HORA META', icon: '⏰', tone: 'warn' },
+    FLOOR_CLEAR: { label: 'PISO LIBRE', icon: '🏁', tone: 'ok' },
+    SETTINGS: { label: 'AJUSTE', icon: '⚙️', tone: 'info' },
+    CLOCK: { label: 'RELOJ', icon: '🕒', tone: 'warn' },
+  };
+
+  function create(shift, type, { activityId = null, parts = [], data = null, ts = Date.now() } = {}) {
+    shift.seq += 1;
+    return { id: `${shift.id}:${String(shift.seq).padStart(6, '0')}`, shiftId: shift.id, seq: shift.seq, ts, type, activityId, parts: parts.filter(Boolean).map(String), data };
+  }
+  const meta = (type) => TYPES[type] || { label: type, icon: '•', tone: 'info' };
+  T.Log = { TYPES, meta, create };
+})(window);
+
+/* Persistencia local (IndexedDB, con respaldo en memoria). commit() guarda turno + eventos en una sola transacción. */
+(function (global) {
+  'use strict';
+  const T = (global.Turnos = global.Turnos || {});
+  const DB_NAME = 'turnos-db';
+  const DB_VERSION = 1;
+
+  const reqP = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const txDone = (tx) => new Promise((res, rej) => {
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+    tx.onabort = () => rej(tx.error || new Error('Transacción cancelada'));
+  });
+
+  class IndexedDbAdapter {
+    constructor() { this.name = 'indexeddb'; this.persistent = true; this.db = null; }
+    async init() {
+      this.db = await new Promise((resolve, reject) => {
+        if (!('indexedDB' in global)) { reject(new Error('IndexedDB no disponible')); return; }
+        let r;
+        try { r = indexedDB.open(DB_NAME, DB_VERSION); } catch (e) { reject(e); return; }
+        r.onupgradeneeded = () => {
+          const db = r.result;
+          if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings', { keyPath: 'key' });
+          if (!db.objectStoreNames.contains('shifts')) { const s = db.createObjectStore('shifts', { keyPath: 'id' }); s.createIndex('status', 'status'); }
+          if (!db.objectStoreNames.contains('events')) { const e = db.createObjectStore('events', { keyPath: 'id' }); e.createIndex('shiftId', 'shiftId'); }
+        };
+        r.onsuccess = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+        r.onblocked = () => reject(new Error('Base de datos bloqueada por otra ventana'));
+      });
+      this.db.onversionchange = () => this.db.close();
+      try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (_) { /* mejor esfuerzo */ }
+    }
+    async loadSettings() { const row = await reqP(this.db.transaction('settings').objectStore('settings').get('app')); return row ? row.value : null; }
+    async saveSettings(value) { const tx = this.db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ key: 'app', value }); await txDone(tx); }
+    async loadActiveShift() {
+      const rows = await reqP(this.db.transaction('shifts').objectStore('shifts').index('status').getAll('active'));
+      rows.sort((a, b) => b.startedAt - a.startedAt);
+      return rows[0] || null;
+    }
+    async loadShift(id) { return (await reqP(this.db.transaction('shifts').objectStore('shifts').get(id))) || null; }
+    async loadEvents(shiftId) {
+      const rows = await reqP(this.db.transaction('events').objectStore('events').index('shiftId').getAll(shiftId));
+      return rows.sort((a, b) => a.seq - b.seq);
+    }
+    async listClosedShifts() {
+      const rows = await reqP(this.db.transaction('shifts').objectStore('shifts').index('status').getAll('closed'));
+      return rows.sort((a, b) => b.startedAt - a.startedAt);
+    }
+    async commit({ shift, events, settings }) {
+      const names = ['shifts', 'events'].concat(settings ? ['settings'] : []);
+      const tx = this.db.transaction(names, 'readwrite');
+      if (shift) tx.objectStore('shifts').put(shift);
+      for (const e of events || []) tx.objectStore('events').put(e);
+      if (settings) tx.objectStore('settings').put({ key: 'app', value: settings });
+      await txDone(tx);
+    }
+  }
+
+  class MemoryAdapter {
+    constructor() { this.name = 'memory'; this.persistent = false; this.settings = null; this.shifts = new Map(); this.events = new Map(); }
+    async init() {}
+    async loadSettings() { return this.settings ? structuredClone(this.settings) : null; }
+    async saveSettings(v) { this.settings = structuredClone(v); }
+    async loadActiveShift() { return structuredClone([...this.shifts.values()].find((s) => s.status === 'active') || null); }
+    async loadShift(id) { return structuredClone(this.shifts.get(id) || null); }
+    async loadEvents(id) { return structuredClone([...this.events.values()].filter((e) => e.shiftId === id).sort((a, b) => a.seq - b.seq)); }
+    async listClosedShifts() { return structuredClone([...this.shifts.values()].filter((s) => s.status === 'closed').sort((a, b) => b.startedAt - a.startedAt)); }
+    async commit({ shift, events, settings }) {
+      if (shift) this.shifts.set(shift.id, structuredClone(shift));
+      for (const e of events || []) this.events.set(e.id, structuredClone(e));
+      if (settings) this.settings = structuredClone(settings);
+    }
+  }
+
+  async function open() {
+    try {
+      const adapter = new IndexedDbAdapter();
+      await Promise.race([adapter.init(), new Promise((_, rej) => setTimeout(() => rej(new Error('Tiempo de espera agotado')), 5000))]);
+      return { adapter, fallbackReason: null };
+    } catch (err) {
+      const adapter = new MemoryAdapter();
+      await adapter.init();
+      return { adapter, fallbackReason: err };
+    }
+  }
+  T.Storage = { open, IndexedDbAdapter, MemoryAdapter };
+})(window);
+
+/*
+ * Estado y acciones. Sin cronómetros: al iniciar se guarda la hora de inicio, al terminar la hora de fin,
+ * y la duración se calcula con la resta. Todo queda en disco al instante, así que el teléfono se puede apagar.
+ */
+(function (global) {
+  'use strict';
+  const T = (global.Turnos = global.Turnos || {});
+  const F = T.Format;
+  const Log = T.Log;
+  const Config = T.Config;
+  const nm = Config.displayName;
+
+  const state = { ready: false, settings: null, shift: null, events: [], storage: { mode: '', persistent: false, fallbackReason: null, error: null } };
+  const listeners = new Set();
+  const closedCache = new Map();
+  let storage = null;
+  let pendingEvents = [];
+  let commitChain = Promise.resolve();
+
+  const fail = (reason) => ({ ok: false, reason });
+  const ok = () => ({ ok: true });
+  const defOf = (id) => state.settings.activities.find((d) => d.id === id);
+  const uid = () => (global.crypto && crypto.randomUUID ? crypto.randomUUID().slice(0, 8) : Math.random().toString(36).slice(2, 10));
+  const hasData = (A) => !!A && (A.runs.length > 0 || A.received > 0 || A.status === 'running');
+  const active = () => state.shift && state.shift.status === 'active';
+  const runMs = (r) => Math.max(0, (r.endedAt || 0) - (r.startedAt || 0));
+  const validRuns = (A) => (A ? A.runs.filter((r) => r.outcome === 'done' && !r.superseded) : []);
+
+  function emit() { listeners.forEach((fn) => { try { fn(state); } catch (e) { console.error(e); } }); }
+
+  function record(type, opts) {
+    const e = Log.create(state.shift, type, opts);
+    state.events.push(e);
+    pendingEvents.push(e);
+    return e;
+  }
+
+  function persist({ shift = state.shift, settings = null } = {}) {
+    const snapshot = shift ? structuredClone(shift) : null;
+    const events = pendingEvents.splice(0);
+    const settingsSnap = settings ? structuredClone(settings) : null;
+    commitChain = commitChain.then(async () => {
+      try {
+        await storage.commit({ shift: snapshot, events, settings: settingsSnap });
+        if (state.storage.error) { state.storage.error = null; emit(); }
+      } catch (err) {
+        pendingEvents = events.concat(pendingEvents);
+        state.storage.error = err;
+        emit();
+      }
+    });
+    return commitChain;
+  }
+
+  // ---------- construcción de estado ----------
+  const newActivityState = (def) => ({ id: def.id, status: 'pending', runStartedAt: null, runs: [], received: 0 });
+
+  function createShift(settings) {
+    const startedAt = Date.now();
+    const shift = { id: `T${startedAt.toString(36)}${uid()}`, schemaVersion: 3, status: 'active', startedAt, endedAt: null, seq: 0, config: Config.clone(settings), activities: {}, customers: [] };
+    settings.activities.forEach((d) => { shift.activities[d.id] = newActivityState(d); });
+    return shift;
+  }
+
+  /** Alinea el turno con la lista de actividades: añade las nuevas; las eliminadas con datos quedan como "retiradas". */
+  function syncShift(shift, settings) {
+    const ids = new Set(settings.activities.map((d) => d.id));
+    const retired = [];
+    for (const d of (shift.config && shift.config.activities) || []) {
+      if (ids.has(d.id)) continue;
+      if (hasData(shift.activities[d.id])) retired.push({ ...d, retired: true }); else delete shift.activities[d.id];
+    }
+    for (const d of settings.activities) if (!shift.activities[d.id]) shift.activities[d.id] = newActivityState(d);
+    shift.config = Config.clone(settings);
+    shift.config.activities = shift.config.activities.concat(retired);
+  }
+
+  /** Limpia un turno guardado por la versión con cronómetros. */
+  function normalizeShift(shift) {
+    shift.customers = shift.customers || [];
+    for (const A of Object.values(shift.activities || {})) {
+      delete A.sw; delete A.custSw; delete A.customerActive; delete A.customerMs; delete A.customerPauses; delete A.limitMs; delete A.warnMs;
+      A.runs = A.runs || [];
+      A.received = A.received || 0;
+      const def = ((shift.config && shift.config.activities) || []).find((d) => d.id === A.id);
+      if (def && def.kind === 'pallet' && A.status === 'running') { A.status = 'pending'; A.runStartedAt = null; }
+      if (A.status === 'running' && !A.runStartedAt) A.runStartedAt = Date.now();
+    }
+  }
+
+  async function init() {
+    const opened = await T.Storage.open();
+    storage = opened.adapter;
+    state.storage.mode = storage.name;
+    state.storage.persistent = storage.persistent;
+    state.storage.fallbackReason = opened.fallbackReason ? String(opened.fallbackReason.message || opened.fallbackReason) : null;
+    try {
+      const raw = await storage.loadSettings();
+      state.settings = Config.sanitize(raw);
+      if (!raw || raw.schemaVersion !== Config.SCHEMA_VERSION) await storage.saveSettings(state.settings);
+      const shift = await storage.loadActiveShift();
+      if (shift) {
+        state.events = await storage.loadEvents(shift.id);
+        normalizeShift(shift);
+        state.shift = shift;
+        syncShift(shift, state.settings);
+        persist();
+      }
+    } catch (err) {
+      state.storage.error = err;
+      state.settings = state.settings || Config.sanitize(null);
+    }
+    state.ready = true;
+    emit();
+  }
+
+  // ---------- acciones ----------
+  function startShift() {
+    if (state.shift) return fail('Ya hay un turno activo');
+    state.shift = createShift(state.settings);
+    state.events = [];
+    record('SHIFT_START', { parts: [state.settings.areaName] });
+    persist(); emit();
+    return ok();
+  }
+
+  function closeRun(A, def, endedAt, note) {
+    const startedAt = A.runStartedAt || endedAt;
+    const durationMs = Math.max(0, endedAt - startedAt);
+    A.runs.push({ n: A.runs.length + 1, startedAt, endedAt, durationMs, outcome: 'done' });
+    A.status = def.kind === 'once' ? 'done' : 'pending';
+    A.runStartedAt = null;
+    record('DONE', { activityId: A.id, ts: endedAt, parts: [nm(def), `${F.clock(startedAt)} - ${F.clock(endedAt)}`, F.dur(durationMs), note] });
+  }
+
+  function endShift() {
+    if (!active()) return fail('No hay turno activo');
+    const shift = state.shift;
+    const now = Date.now();
+    const openCust = (shift.customers || []).find((c) => !c.endedAt);
+    if (openCust) {
+      openCust.endedAt = now;
+      record('CUSTOMER', { ts: now, parts: ['Termina', `${F.clock(openCust.startedAt)} - ${F.clock(now)}`, F.dur(now - openCust.startedAt), 'Cerrada al finalizar el turno'] });
+    }
+    for (const def of shift.config.activities) {
+      const A = shift.activities[def.id];
+      if (A && A.status === 'running') closeRun(A, def, now, 'Cerrada al finalizar el turno');
+    }
+    shift.endedAt = now;
+    const pallets = shift.config.activities.filter((d) => d.kind === 'pallet').reduce((n, d) => n + (shift.activities[d.id] ? shift.activities[d.id].received : 0), 0);
+    record('SHIFT_END', { ts: now, parts: [`Duración ${F.dur(now - shift.startedAt)}`, `${pallets} tarima(s)`] });
+    shift.status = 'closed';
+    closedCache.set(shift.id, { shift: structuredClone(shift), events: structuredClone(state.events) });
+    persist({ shift });
+    state.shift = null; state.events = [];
+    emit();
+    return { ok: true, shiftId: shift.id };
+  }
+
+  function startActivity(id) {
+    if (!active()) return fail('Inicia el turno primero');
+    const def = defOf(id); const A = state.shift.activities[id];
+    if (!def || !A) return fail('Actividad desconocida');
+    if (def.kind === 'pallet') return fail('Las tarimas se registran con + y −');
+    if (A.status === 'running') return ok(); // idempotente
+    if (def.kind === 'once' && A.status === 'done') return fail('Esta actividad ya está terminada');
+    A.status = 'running';
+    A.runStartedAt = Date.now();
+    record('START', { activityId: id, ts: A.runStartedAt, parts: [nm(def)] });
+    persist(); emit();
+    return ok();
+  }
+
+  function finishActivity(id) {
+    if (!active()) return fail('No hay turno activo');
+    const def = defOf(id); const A = state.shift.activities[id];
+    if (!def || !A || A.status !== 'running') return fail('La actividad no está en curso');
+    closeRun(A, def, Date.now());
+    persist(); emit();
+    return ok();
+  }
+
+  function cancelActivity(id) {
+    if (!active()) return fail('No hay turno activo');
+    const def = defOf(id); const A = state.shift.activities[id];
+    if (!def || !A || A.status !== 'running') return fail('La actividad no está en curso');
+    A.status = 'pending'; A.runStartedAt = null;
+    record('CANCEL', { activityId: id, parts: [nm(def), 'No se registró'] });
+    persist(); emit();
+    return ok();
+  }
+
+  function reopenActivity(id) {
+    if (!active()) return fail('No hay turno activo');
+    const def = defOf(id); const A = state.shift.activities[id];
+    if (!def || !A || def.kind !== 'once' || A.status !== 'done') return fail('No se puede reabrir');
+    const last = [...A.runs].reverse().find((r) => r.outcome === 'done' && !r.superseded);
+    if (last) last.superseded = true;
+    A.status = 'pending';
+    record('REOPEN', { activityId: id, parts: [nm(def), 'El registro anterior se conserva'] });
+    persist(); emit();
+    return ok();
+  }
+
+  /** Fija el total de tarimas de un departamento (conteo directo, +1 o −1). */
+  function setReceived(id, total) {
+    if (!active()) return fail('Inicia el turno primero');
+    const def = defOf(id); const A = state.shift.activities[id];
+    if (!def || !A || def.kind !== 'pallet') return fail('Actividad desconocida');
+    if (!Number.isInteger(total) || total < 0 || total > 999) return fail('Cantidad no válida');
+    const delta = total - A.received;
+    if (delta === 0) return ok();
+    A.received = total;
+    const noun = `${Math.abs(delta)} tarima${Math.abs(delta) > 1 ? 's' : ''} ${def.name}`;
+    if (delta > 0) record('ARRIVAL', { activityId: id, parts: [noun, `Total ${total}`] });
+    else record('CORRECTION', { activityId: id, parts: [`-${noun} (corrección)`, `Total ${total}`] });
+    persist(); emit();
+    return ok();
+  }
+  function adjustArrivals(id, delta) {
+    const A = state.shift && state.shift.activities[id];
+    return A ? setReceived(id, Math.max(0, A.received + delta)) : fail('Inicia el turno primero');
+  }
+
+  // ---------- ajustes y edición de actividades ----------
+  function applySettings(next) {
+    state.settings = next;
+    if (active()) syncShift(state.shift, next);
+    persist({ settings: next });
+    emit();
+  }
+  function updateSettings(raw) {
+    applySettings(Config.sanitize({ ...raw, schemaVersion: Config.SCHEMA_VERSION, activities: state.settings.activities }));
+    return ok();
+  }
+  function saveActivity(raw) {
+    const list = state.settings.activities;
+    const idx = list.findIndex((d) => d.id === raw.id);
+    const def = Config.sanitizeActivity(raw, new Set(list.filter((d) => d.id !== raw.id).map((d) => d.id)));
+    if (!def) return fail('Escribe un nombre para la actividad');
+    if (idx >= 0 && active()) {
+      const A = state.shift.activities[def.id];
+      if (list[idx].kind !== def.kind && hasData(A)) return fail('No se puede cambiar el tipo: ya tiene datos en el turno activo');
+    }
+    const next = Config.clone(state.settings);
+    if (idx >= 0) next.activities[idx] = def; else next.activities.push(def);
+    applySettings(next);
+    return { ok: true, id: def.id };
+  }
+  function deleteActivity(id) {
+    if (!defOf(id)) return fail('Actividad no encontrada');
+    if (active() && state.shift.activities[id] && state.shift.activities[id].status === 'running') return fail('Termina o cancela la actividad en curso antes de eliminarla');
+    const next = Config.clone(state.settings);
+    next.activities = next.activities.filter((d) => d.id !== id);
+    applySettings(next);
+    return ok();
+  }
+  function moveActivity(id, dir) {
+    const list = state.settings.activities;
+    const i = list.findIndex((d) => d.id === id);
+    if (i < 0) return fail('Actividad no encontrada');
+    let j = i + dir;
+    while (j >= 0 && j < list.length && list[j].group !== list[i].group) j += dir;
+    if (j < 0 || j >= list.length) return ok();
+    const next = Config.clone(state.settings);
+    [next.activities[i], next.activities[j]] = [next.activities[j], next.activities[i]];
+    applySettings(next);
+    return ok();
+  }
+  function logExport(format, filename) {
+    if (!active()) return;
+    record('EXPORT', { parts: [format.toUpperCase(), filename] });
+    persist(); emit();
+  }
+
+  // ---------- lecturas ----------
+  function activityView(id) {
+    const def = defOf(id);
+    if (!def) return null;
+    const A = state.shift ? state.shift.activities[id] : null;
+    const running = !!A && A.status === 'running';
+    const doneRuns = validRuns(A);
+    const lastRun = doneRuns[doneRuns.length - 1] || null;
+    let phase = 'inactive';
+    if (A) phase = running ? 'running' : A.status === 'done' ? 'done' : 'pending';
+    return {
+      def, A, phase, running, doneRuns, lastRun,
+      startedAt: running ? A.runStartedAt : null,
+      totalMs: doneRuns.reduce((n, r) => n + runMs(r), 0),
+      received: A ? A.received : 0,
+      scheduled: Config.isScheduled(def, state.shift ? state.shift.startedAt : Date.now()),
+      canStart: !!A && !running && def.kind !== 'pallet' && (def.kind === 'multi' || A.status === 'pending'),
+    };
+  }
+
+  function progress() {
+    const S = state.shift;
+    const ts = S ? S.startedAt : Date.now();
+    const required = state.settings.activities.filter((d) => d.kind !== 'pallet' && !d.optional && Config.isScheduled(d, ts));
+    const isDone = (d) => { const A = S && S.activities[d.id]; return !!A && (d.kind === 'once' ? A.status === 'done' : validRuns(A).length > 0); };
+    const done = required.filter(isDone).length;
+    const palletsTotal = S ? state.settings.activities.filter((d) => d.kind === 'pallet').reduce((n, d) => n + (S.activities[d.id] ? S.activities[d.id].received : 0), 0) : 0;
+    return { done, total: required.length, percent: required.length ? Math.round((done / required.length) * 100) : 0, palletsTotal };
+  }
+
+  /** Atención al cliente: un toque la inicia, otro la termina. Queda con hora de inicio y fin. */
+  function toggleCustomer() {
+    if (!active()) return fail('Inicia el turno primero');
+    const S = state.shift;
+    S.customers = S.customers || [];
+    const open = S.customers.find((c) => !c.endedAt);
+    const now = Date.now();
+    if (open) {
+      open.endedAt = now;
+      record('CUSTOMER', { ts: now, parts: ['Termina', `${F.clock(open.startedAt)} - ${F.clock(now)}`, F.dur(now - open.startedAt)] });
+    } else {
+      S.customers.push({ n: S.customers.length + 1, startedAt: now, endedAt: null });
+      record('CUSTOMER', { ts: now, parts: ['Inicia'] });
+    }
+    persist(); emit();
+    return ok();
+  }
+  function customerView() {
+    const list = (state.shift && state.shift.customers) || [];
+    const done = list.filter((c) => c.endedAt);
+    return { open: list.find((c) => !c.endedAt) || null, count: done.length, totalMs: done.reduce((n, c) => n + (c.endedAt - c.startedAt), 0) };
+  }
+
+  const runningCount = () => (active() ? Object.values(state.shift.activities).filter((A) => A.status === 'running').length : 0);
+  async function loadHistory() { return storage.listClosedShifts(); }
+  async function loadClosedShift(id) {
+    if (closedCache.has(id)) return structuredClone(closedCache.get(id));
+    const shift = await storage.loadShift(id);
+    if (!shift) return null;
+    return { shift, events: await storage.loadEvents(id) };
+  }
+
+  T.Store = {
+    state, init, subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+    startShift, endShift, startActivity, finishActivity, cancelActivity, reopenActivity,
+    adjustArrivals, setReceived, updateSettings, saveActivity, deleteActivity, moveActivity, logExport,
+    activityView, progress, runningCount, loadHistory, loadClosedShift, runMs, toggleCustomer, customerView,
+  };
+})(window);
+
+/* Exportación. El TXT es solo: cronología, fin de turno y resumen de tarimas. */
+(function (global) {
+  'use strict';
+  const T = (global.Turnos = global.Turnos || {});
+  const F = T.Format;
+  const nm = T.Config.displayName;
+
+  const runMs = (r) => Math.max(0, (r.endedAt || 0) - (r.startedAt || 0));
+
+  const DAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  const MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+  const dateLong = (ts) => { const d = new Date(ts); return `${DAYS[d.getDay()]} ${d.getDate()} de ${MONTHS[d.getMonth()]} de ${d.getFullYear()}`; };
+
+  /** Actividades en orden cronológico; la atención al cliente se anida en la actividad en curso, o queda suelta. */
+  function timeline(shift) {
+    const items = [];
+    for (const def of shift.config.activities) {
+      if (def.kind === 'pallet') continue;
+      const A = shift.activities[def.id];
+      if (!A) continue;
+      A.runs.filter((r) => r.outcome === 'done' && !r.superseded).forEach((r) => items.push({ icon: def.icon, name: nm(def), startedAt: r.startedAt, endedAt: r.endedAt, customers: [] }));
+      if (A.status === 'running' && A.runStartedAt) items.push({ icon: def.icon, name: nm(def), startedAt: A.runStartedAt, endedAt: null, customers: [] });
+    }
+    items.sort((a, b) => a.startedAt - b.startedAt);
+    const loose = [];
+    [...(shift.customers || [])].sort((a, b) => a.startedAt - b.startedAt).forEach((c) => {
+      const host = items.find((i) => c.startedAt >= i.startedAt && (i.endedAt == null || c.startedAt <= i.endedAt));
+      if (host) host.customers.push(c); else loose.push(c);
+    });
+    return { items, loose };
+  }
+
+  function palletBreakdown(shift) {
+    return shift.config.activities
+      .filter((d) => d.kind === 'pallet' && shift.activities[d.id] && shift.activities[d.id].received > 0)
+      .map((d) => ({ name: d.name, count: shift.activities[d.id].received }));
+  }
+
+  const tarimas = (n) => `${n} tarima${n === 1 ? '' : 's'}`;
+  const range = (a, b) => (b ? `${F.clock(a)} - ${F.clock(b)} (${F.dur(b - a)})` : `${F.clock(a)} - en curso`);
+  const LINE = '━━━━━━━━━━━━━━━━━━━━';
+
+  function buildTxt({ shift }) {
+    const now = Date.now();
+    const { items, loose } = timeline(shift);
+    const entries = items.map((i) => ({ at: i.startedAt, i })).concat(loose.map((c) => ({ at: c.startedAt, c }))).sort((a, b) => a.at - b.at);
+    const L = [LINE, 'BITÁCORA DE TURNO', `${shift.config.areaName} · ${dateLong(shift.startedAt)}`, LINE, '', `🟢 Inicia turno ${F.clock(shift.startedAt)}`, ''];
+    entries.forEach((e) => {
+      if (e.i) {
+        L.push(`${e.i.icon} ${e.i.name}`, `     ${range(e.i.startedAt, e.i.endedAt)}`);
+        e.i.customers.forEach((c) => L.push(`     👤 Atención al cliente ${range(c.startedAt, c.endedAt)}`));
+      } else L.push('👤 Atención al cliente', `     ${range(e.c.startedAt, e.c.endedAt)}`);
+    });
+    L.push('', LINE, shift.endedAt ? `🏁 Fin de turno ${F.clock(shift.endedAt)} (${F.dur(shift.endedAt - shift.startedAt)})` : `⏳ Turno en curso (${F.dur(now - shift.startedAt)} hasta ahora)`, LINE, '');
+    const rows = palletBreakdown(shift);
+    const total = rows.reduce((n, r) => n + r.count, 0);
+    L.push('📦 TARIMAS', `${tarimas(total)} (total)`);
+    if (rows.length) { L.push('Desglose:'); rows.forEach((r) => L.push(`   • ${tarimas(r.count)} ${r.name}`)); }
+    const custAll = shift.customers || [];
+    if (custAll.length) {
+      const done = custAll.filter((c) => c.endedAt);
+      const ms = done.reduce((n, c) => n + (c.endedAt - c.startedAt), 0);
+      L.push('', '👤 ATENCIÓN AL CLIENTE', `${custAll.length} ${custAll.length === 1 ? 'vez' : 'veces'} · ${F.dur(ms)} en total`);
+    }
+    return L.join('\n') + '\n';
+  }
+
+  const csvCell = (v) => { const s = String(v == null ? '' : v); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+
+  /** Una fila por medición, para Excel. UTF-8 con BOM. */
+  function buildCsv({ shift }) {
+    const { items, loose } = timeline(shift);
+    const rows = [];
+    items.forEach((i) => {
+      rows.push({ at: i.startedAt, name: i.name, during: '', s: i.startedAt, e: i.endedAt });
+      i.customers.forEach((c) => rows.push({ at: c.startedAt, name: 'Atención al cliente', during: i.name, s: c.startedAt, e: c.endedAt }));
+    });
+    loose.forEach((c) => rows.push({ at: c.startedAt, name: 'Atención al cliente', during: '', s: c.startedAt, e: c.endedAt }));
+    rows.sort((a, b) => a.at - b.at);
+    const lines = [['fecha', 'actividad', 'durante', 'inicio', 'fin', 'minutos'].join(',')];
+    rows.forEach((r) => lines.push([F.dateISO(r.s), r.name, r.during, F.clock(r.s), r.e ? F.clock(r.e) : '', r.e ? Math.round((r.e - r.s) / 60000) : ''].map(csvCell).join(',')));
+    return '﻿' + lines.join('\r\n') + '\r\n';
+  }
+
+  const FORMATS = {
+    txt: { ext: 'txt', mime: 'text/plain', build: buildTxt },
+    csv: { ext: 'csv', mime: 'text/csv', build: buildCsv },
+  };
+
+  const fileName = (shift, ext) => { const d = new Date(shift.startedAt); return `bitacora-turno_${F.dateISO(shift.startedAt)}_${F.pad(d.getHours())}${F.pad(d.getMinutes())}.${ext}`; };
+
+  /** Adaptador de guardado (en Capacitor se reemplaza por Filesystem + Share). */
+  const WebFileSaver = {
+    async save({ filename, mime, content }) {
+      const type = `${mime};charset=utf-8`;
+      const coarse = global.matchMedia && matchMedia('(pointer: coarse)').matches;
+      if (coarse && navigator.canShare && typeof File === 'function') {
+        const file = new File([content], filename, { type });
+        if (navigator.canShare({ files: [file] })) {
+          try { await navigator.share({ files: [file], title: filename }); return { ok: true, via: 'share' }; }
+          catch (err) { if (err && err.name === 'AbortError') return { ok: false, cancelled: true }; }
+        }
+      }
+      const url = URL.createObjectURL(new Blob([content], { type }));
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.rel = 'noopener';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      return { ok: true, via: 'download' };
+    },
+  };
+  let saver = WebFileSaver;
+
+  async function exportShift({ shift, events, format = 'txt' }) {
+    const f = FORMATS[format];
+    if (!f) return { ok: false, error: `Formato no soportado: ${format}` };
+    try {
+      const content = f.build({ shift, events });
+      const filename = fileName(shift, f.ext);
+      const res = await saver.save({ filename, mime: f.mime, content });
+      return { ...res, filename, content };
+    } catch (err) { return { ok: false, error: String((err && err.message) || err) }; }
+  }
+
+  T.Export = { FORMATS, buildTxt, buildCsv, fileName, exportShift, setSaver(s) { saver = s; } };
+})(window);
+/*__END_CORE__*/
+
+/* Interfaz: vistas y navegación por hash. */
+(function (global) {
+  'use strict';
+  const T = (global.Turnos = global.Turnos || {});
+  const Store = T.Store;
+  const F = T.Format;
+  const Log = T.Log;
+  const Config = T.Config;
+  const nm = Config.displayName;
+  const state = Store.state;
+
+  let root = null;
+  let renderToken = 0;
+  let lastRouteKey = '';
+  let logNewestFirst = true;
+
+  function h(tag, props, ...children) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (v == null || v === false) continue;
+      if (k === 'class') el.className = v;
+      else if (k === 'dataset') Object.assign(el.dataset, v);
+      else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
+      else if (v === true) el.setAttribute(k, '');
+      else el.setAttribute(k, v);
+    }
+    for (const c of children.flat()) {
+      if (c == null || c === false) continue;
+      el.append(c.nodeType ? c : document.createTextNode(String(c)));
+    }
+    return el;
+  }
+
+  function toast(text, kind = 'info', ms = 3500) {
+    const t = h('div', { class: `toast toast-${kind}` }, text);
+    document.getElementById('toasts').append(t);
+    setTimeout(() => t.remove(), ms);
+  }
+
+  function confirmDialog({ title, message, confirmText = 'Aceptar', danger = false }) {
+    const dlg = document.getElementById('confirm');
+    if (!dlg || typeof dlg.showModal !== 'function') return Promise.resolve(global.confirm(`${title}\n${message}`));
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-text').textContent = message;
+    const yes = document.getElementById('confirm-yes');
+    yes.textContent = confirmText;
+    yes.className = `btn ${danger ? 'btn-danger' : 'btn-primary'}`;
+    return new Promise((resolve) => {
+      dlg.addEventListener('close', () => resolve(dlg.returnValue === 'ok'), { once: true });
+      dlg.returnValue = 'cancel';
+      dlg.showModal();
+    });
+  }
+
+  function numberDialog({ title, message, value, max = 999 }) {
+    const dlg = document.getElementById('number-dialog');
+    if (!dlg || typeof dlg.showModal !== 'function') { const n = Number(global.prompt(`${title}\n${message}`, String(value))); return Promise.resolve(Number.isInteger(n) ? n : null); }
+    document.getElementById('number-title').textContent = title;
+    document.getElementById('number-text').textContent = message;
+    const input = document.getElementById('number-input');
+    input.max = String(max); input.value = String(value);
+    return new Promise((resolve) => {
+      dlg.addEventListener('close', () => {
+        if (dlg.returnValue !== 'ok') { resolve(null); return; }
+        const n = Number(input.value);
+        resolve(input.value !== '' && Number.isInteger(n) ? n : null);
+      }, { once: true });
+      dlg.returnValue = 'cancel';
+      dlg.showModal();
+      input.select();
+    });
+  }
+
+  // ---------- estado visual ----------
+  function statusText(v) {
+    const d = v.def;
+    if (v.phase === 'running') return `▶ desde ${F.clock(v.startedAt)}`;
+    if (d.kind === 'once' && v.phase === 'done' && v.lastRun) return `✔ ${F.clock(v.lastRun.startedAt)}–${F.clock(v.lastRun.endedAt)} · ${F.dur(Store.runMs(v.lastRun))}`;
+    if (d.kind === 'multi' && v.doneRuns.length) return `✔ ${v.doneRuns.length}× · ${F.dur(v.totalMs)}`;
+    return d.kind === 'once' ? '⏳ PENDIENTE' : '⏳ SIN HACER';
+  }
+  const daysText = (def) => (def.days && def.days.length ? Config.DAY_LABELS.filter(([n]) => def.days.includes(Number(n))).map(([, l]) => l).join(' ') : 'todos los días');
+
+  function topbar(title, { back = '#/' } = {}) {
+    return h('header', { class: 'topbar' }, h('a', { class: 'iconbtn', href: back, 'aria-label': 'Volver' }, '←'), h('h1', {}, title));
+  }
+
+  // ---------- vistas ----------
+  function viewHome() {
+    const S = state.shift;
+    const prog = Store.progress();
+    const head = h('header', { class: 'home-head' },
+      h('div', {}, h('h1', {}, `🏬 ${state.settings.areaName}`), h('p', { class: 'cats' }, state.settings.categories.join(' · '))),
+      h('div', { class: 'clock', dataset: { live: 'clock' } }, F.clock(Date.now())));
+
+    const shiftBox = S
+      ? h('section', { class: 'panel progress' },
+          h('div', { class: 'progress-row' }, h('span', {}, `${prog.percent}% de actividades programadas`), h('span', { class: 'count' }, `${prog.done}/${prog.total}`)),
+          h('div', { class: 'bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(prog.percent) }, h('span', { style: `width:${prog.percent}%` })),
+          h('div', { class: 'progress-row' }, h('span', {}, '📦 Tarimas recibidas'), h('span', { class: 'count' }, String(prog.palletsTotal))),
+          h('p', { class: 'meta' }, `Turno iniciado a las ${F.clock(S.startedAt)}`))
+      : h('section', { class: 'panel start-panel' },
+          h('p', {}, 'No hay turno activo. Inicia el turno para registrar actividades.'),
+          h('button', { class: 'btn btn-primary btn-big', type: 'button', dataset: { action: 'start-shift' } }, '▶ Iniciar turno'));
+
+    const groups = new Map();
+    state.settings.activities.forEach((d) => {
+      const v = Store.activityView(d.id);
+      if (!groups.has(d.group)) groups.set(d.group, []);
+      groups.get(d.group).push(v);
+    });
+    const today = [], offToday = [];
+    groups.forEach((views, name) => {
+      const on = views.filter((v) => v.scheduled);
+      if (on.length) today.push(groupSection(name, on));
+      views.filter((v) => !v.scheduled).forEach((v) => offToday.push(v));
+    });
+    const empty = !state.settings.activities.length ? h('p', { class: 'empty' }, 'No hay actividades. Agrégalas con «Agregar actividad».') : null;
+    const off = offToday.length
+      ? h('details', { class: 'panel' }, h('summary', {}, `No programadas hoy (${offToday.length})`), h('div', { class: 'grid', style: 'margin-top:10px' }, offToday.filter((v) => v.def.kind !== 'pallet').map(activityCard)))
+      : null;
+
+    const nav = h('div', { class: 'nav' },
+      h('a', { class: 'btn btn-wide', href: '#/bitacora' }, '📋 Bitácora del turno'),
+      h('a', { class: 'btn btn-wide btn-ghost', href: '#/editar/nueva' }, '＋ Agregar actividad'),
+      h('div', { class: 'nav-grid' },
+        h('a', { class: 'btn btn-ghost', href: '#/historial' }, '🕘 Historial'),
+        h('a', { class: 'btn btn-ghost', href: '#/actividades' }, '✏️ Actividades')),
+      h('a', { class: 'btn btn-ghost', href: '#/ajustes' }, '⚙ Ajustes'),
+      S ? h('button', { class: 'btn btn-ghost btn-warnline', type: 'button', dataset: { action: 'end-shift' } }, '⏹ Finalizar turno') : null);
+
+    const cv = Store.customerView();
+    const custBar = S
+      ? h('button', { class: `cust-bar${cv.open ? ' on' : ''}`, type: 'button', dataset: { action: 'customer' } },
+          cv.open ? `⏹ Terminar atención al cliente · desde ${F.clock(cv.open.startedAt)}` : `👤 Atención al cliente${cv.count ? ` · hoy ${cv.count}× (${F.dur(cv.totalMs)})` : ''}`)
+      : null;
+    return h('main', { class: 'screen' }, head, shiftBox, custBar, empty, today, off, nav);
+  }
+
+  function groupSection(name, views) {
+    const cards = views.filter((v) => v.def.kind !== 'pallet');
+    const rows = views.filter((v) => v.def.kind === 'pallet');
+    const doneCount = cards.filter((v) => v.phase === 'done' || (v.def.kind === 'multi' && v.doneRuns.length > 0)).length;
+    const total = rows.reduce((n, v) => n + v.received, 0);
+    const counter = cards.length && !rows.length ? `${doneCount}/${cards.length}` : rows.length ? `${total} tarimas` : '';
+    return h('section', { class: 'group' },
+      h('h2', { class: 'group-title' }, name, counter ? h('span', { class: 'group-count' }, counter) : null),
+      cards.length ? h('div', { class: 'grid' }, cards.map(activityCard)) : null,
+      rows.length ? h('div', { class: 'rows' }, rows.map(palletRow)) : null);
+  }
+
+  function activityCard(v) {
+    const d = v.def;
+    const label = `${nm(d)}, ${statusText(v)}`;
+    return h('div', { class: `card c-${d.color}`, dataset: { phase: v.phase } },
+      h('button', { class: 'card-main', type: 'button', disabled: !state.shift, dataset: { action: 'open', id: d.id }, 'aria-label': label },
+        h('span', { class: 'card-icon', 'aria-hidden': 'true' }, d.icon),
+        h('span', { class: 'card-name' }, d.name),
+        h('span', { class: 'card-limit' }, `${d.kind === 'multi' ? 'varias veces' : 'una vez'}${d.optional ? ' · opcional' : ''}`),
+        h('span', { class: 'card-status' }, statusText(v))));
+  }
+
+  function palletRow(v) {
+    const d = v.def;
+    const hasShift = !!state.shift;
+    return h('div', { class: `prow c-${d.color}${v.received === 0 ? ' is-empty' : ''}` },
+      h('div', { class: 'prow-main' }, h('span', {}, h('span', { 'aria-hidden': 'true' }, `${d.icon} `), d.name)),
+      h('div', { class: 'stepper' },
+        h('button', { class: 'step', type: 'button', disabled: !hasShift || v.received <= 0, 'aria-label': `Quitar una tarima de ${d.name} (corrección)`, dataset: { action: 'dec', id: d.id } }, '−'),
+        h('button', { class: 'step-count', type: 'button', disabled: !hasShift, 'aria-label': `${v.received} tarimas de ${d.name}. Tocar para contar`, dataset: { action: 'set-count', id: d.id } }, String(v.received)),
+        h('button', { class: 'step', type: 'button', disabled: !hasShift, 'aria-label': `Llegó una tarima de ${d.name}`, dataset: { action: 'inc', id: d.id } }, '+')));
+  }
+
+  function viewActivity(id) {
+    const v = Store.activityView(id);
+    if (!v || !state.shift) return h('main', { class: 'screen' }, topbar('Actividad'), h('p', { class: 'empty' }, state.shift ? 'Actividad no encontrada.' : 'Inicia el turno para usar las actividades.'));
+    const d = v.def;
+    let main, label, sub;
+    if (v.running) { main = F.clock(v.startedAt); label = 'EN CURSO · INICIÓ A LAS'; sub = 'La hora queda guardada: puedes apagar el teléfono.'; }
+    else if (v.phase === 'done' && v.lastRun) { main = `${F.clock(v.lastRun.startedAt)}–${F.clock(v.lastRun.endedAt)}`; label = 'TERMINADA'; sub = F.dur(Store.runMs(v.lastRun)); }
+    else { main = '--:--'; label = 'SIN INICIAR'; sub = d.kind === 'multi' && v.doneRuns.length ? `Hechas hoy: ${v.doneRuns.length} · total ${F.dur(v.totalMs)}` : ''; }
+
+    const actions = [];
+    if (v.running) {
+      actions.push(h('button', { class: 'btn btn-ok btn-big', type: 'button', dataset: { action: 'finish', id } }, '✅ Listo (marcar fin)'));
+      const cvA = Store.customerView();
+      actions.push(h('button', { class: `cust-bar${cvA.open ? ' on' : ''}`, type: 'button', dataset: { action: 'customer' } },
+        cvA.open ? `⏹ Terminar atención al cliente · desde ${F.clock(cvA.open.startedAt)}` : '👤 Atención al cliente'));
+      actions.push(h('a', { class: 'btn btn-ghost', href: '#/' }, '← Volver'));
+      actions.push(h('button', { class: 'btn btn-ghost btn-danger-line', type: 'button', dataset: { action: 'cancel', id } }, '✖ Cancelar (no registrar)'));
+    } else if (v.canStart) {
+      actions.push(h('button', { class: 'btn btn-primary btn-big', type: 'button', dataset: { action: 'start', id } }, v.doneRuns.length ? '▶ Iniciar otra vez' : '▶ Iniciar'));
+      actions.push(h('a', { class: 'btn btn-ghost', href: '#/' }, '← Volver'));
+    } else {
+      if (d.kind === 'once' && v.phase === 'done') actions.push(h('button', { class: 'btn btn-ghost', type: 'button', dataset: { action: 'reopen', id } }, '↺ Reabrir actividad'));
+      actions.push(h('a', { class: 'btn btn-ghost', href: '#/' }, '← Volver'));
+    }
+    const runs = v.A.runs.length
+      ? h('section', { class: 'panel' }, h('h2', {}, 'Registros'),
+          h('ol', { class: 'runs' }, v.A.runs.map((r) => h('li', { class: r.superseded ? 'run-muted' : '' },
+            h('span', {}, `#${r.n} · ${F.clock(r.startedAt)} – ${F.clock(r.endedAt)}`), h('strong', {}, F.dur(Store.runMs(r))),
+            r.superseded ? h('span', {}, 'reabierta') : null))))
+      : null;
+    return h('main', { class: 'screen' },
+      h('section', { class: 'panel time-panel', dataset: { phase: v.phase } },
+        h('h1', {}, `${d.icon} ${nm(d)}`),
+        h('div', { class: 'time-label' }, label),
+        h('div', { class: 'time-big' }, main),
+        h('div', { class: 'time-sub' }, sub),
+        h('div', { class: 'actions' }, actions)),
+      runs);
+  }
+
+  function logList(events) {
+    const list = logNewestFirst ? [...events].reverse() : events;
+    if (!list.length) return h('p', { class: 'empty' }, 'Aún no hay eventos. Inicia el turno para empezar la bitácora.');
+    return h('ol', { class: 'log' }, list.map((e) => {
+      const m = Log.meta(e.type);
+      return h('li', { class: `log-${m.tone}` },
+        h('time', { datetime: new Date(e.ts).toISOString() }, F.time(e.ts)),
+        h('span', { class: 'log-text' }, h('span', { 'aria-hidden': 'true' }, `${m.icon} `), h('strong', {}, m.label), e.parts.length ? ` · ${e.parts.join(' · ')}` : ''));
+    }));
+  }
+
+  function viewLog({ shift, events, closed, back }) {
+    const title = closed ? `📋 Turno ${F.dateISO(shift.startedAt)}` : '📋 Bitácora';
+    const d = { closed: closed ? '1' : '', shift: shift ? shift.id : '' };
+    return h('main', { class: 'screen' }, topbar(title, { back }),
+      h('section', { class: 'panel' },
+        h('div', { class: 'log-head' },
+          h('span', { class: 'meta' }, `${events.length} evento(s)${closed ? ' · turno cerrado' : ''}`),
+          h('button', { class: 'chip', type: 'button', dataset: { action: 'toggle-order' } }, logNewestFirst ? '↓ Recientes primero' : '↑ Antiguos primero')),
+        logList(events),
+        shift ? h('button', { class: 'btn btn-accent btn-big', type: 'button', dataset: { action: 'export', format: 'txt', ...d } }, '📄 Exportar reporte (txt)') : null,
+        shift ? h('button', { class: 'btn btn-ghost', type: 'button', dataset: { action: 'export', format: 'csv', ...d } }, '📊 Exportar tiempos (csv para Excel)') : null,
+        shift ? h('button', { class: 'btn btn-ghost', type: 'button', dataset: { action: 'copy-report', ...d } }, 'Copiar texto del reporte') : null,
+        h('a', { class: 'btn btn-ghost', href: back }, '← Volver')));
+  }
+
+  async function viewHistory() {
+    const shifts = await Store.loadHistory();
+    return h('main', { class: 'screen' }, topbar('🕘 Historial'),
+      h('section', { class: 'panel' },
+        shifts.length ? h('ul', { class: 'history' }, shifts.map((s) =>
+          h('li', {}, h('a', { href: `#/historial/${s.id}` }, h('strong', {}, F.dateISO(s.startedAt)), h('span', {}, `${F.clock(s.startedAt)}–${s.endedAt ? F.clock(s.endedAt) : '…'}`))))) : h('p', { class: 'empty' }, 'Todavía no hay turnos finalizados.')));
+  }
+
+  async function viewClosedShift(id) {
+    const data = await Store.loadClosedShift(id);
+    if (!data) return h('main', { class: 'screen' }, topbar('Turno', { back: '#/historial' }), h('p', { class: 'empty' }, 'No se encontró el turno.'));
+    return viewLog({ shift: data.shift, events: data.events, closed: true, back: '#/historial' });
+  }
+
+  function viewSettings() {
+    const s = state.settings;
+    const form = h('form', { class: 'panel form', id: 'settings-form' },
+      h('label', { for: 'f-area' }, 'Nombre del área'),
+      h('input', { id: 'f-area', name: 'area', type: 'text', maxlength: '40', value: s.areaName, required: true }),
+      h('label', { for: 'f-cats' }, 'Categorías (separadas por coma)'),
+      h('input', { id: 'f-cats', name: 'cats', type: 'text', value: s.categories.join(', ') }),
+      h('button', { class: 'btn btn-primary btn-big', type: 'submit' }, 'Guardar ajustes'));
+    const diag = h('section', { class: 'panel' }, h('h2', {}, 'Estado técnico'),
+      h('p', { class: 'meta' }, state.storage.persistent ? 'Guardado local en IndexedDB.' : `ATENCIÓN: sin almacenamiento persistente (${state.storage.fallbackReason || 'motivo desconocido'}). Los datos se pierden al cerrar.`));
+    return h('main', { class: 'screen' }, topbar('⚙ Ajustes'), h('a', { class: 'btn btn-wide', href: '#/actividades' }, '✏️ Editar actividades'), form, diag);
+  }
+
+  function viewActivities() {
+    const groups = new Map();
+    state.settings.activities.forEach((d) => { if (!groups.has(d.group)) groups.set(d.group, []); groups.get(d.group).push(d); });
+    const sections = [...groups].map(([name, defs]) => h('section', { class: 'panel' }, h('h2', {}, name),
+      h('ul', { class: 'edit-list' }, defs.map((d, i) => h('li', {},
+        h('a', { class: 'edit-main', href: `#/editar/${encodeURIComponent(d.id)}` },
+          h('strong', {}, `${d.icon} ${d.name}`),
+          h('span', {}, `${Config.KINDS[d.kind]} · ${daysText(d)}${d.optional ? ' · opcional' : ''}`)),
+        h('div', { class: 'edit-move' },
+          h('button', { class: 'step', type: 'button', disabled: i === 0, 'aria-label': `Subir ${d.name}`, dataset: { action: 'move-up', id: d.id } }, '↑'),
+          h('button', { class: 'step', type: 'button', disabled: i === defs.length - 1, 'aria-label': `Bajar ${d.name}`, dataset: { action: 'move-down', id: d.id } }, '↓')))))));
+    return h('main', { class: 'screen' }, topbar('✏️ Actividades', { back: '#/ajustes' }),
+      h('a', { class: 'btn btn-primary btn-big', href: '#/editar/nueva' }, '＋ Nueva actividad'),
+      sections.length ? sections : h('p', { class: 'empty' }, 'No hay actividades. Agrega la primera.'),
+      h('p', { class: 'meta' }, 'Las actividades eliminadas se quitan de la pantalla principal; lo ya registrado en turnos e historial se conserva.'));
+  }
+
+  function viewEditActivity(id) {
+    const isNew = id === 'nueva';
+    const d = isNew ? { id: '', name: '', group: '', kind: 'once', icon: '🧹', color: 'blue', days: [], optional: false } : state.settings.activities.find((x) => x.id === id);
+    if (!d) return h('main', { class: 'screen' }, topbar('Actividad', { back: '#/actividades' }), h('p', { class: 'empty' }, 'No se encontró la actividad.'));
+    const groups = [...new Set(state.settings.activities.map((x) => x.group))];
+    const emojis = ['🧹', '🛒', '🥚', '🥛', '🧈', '🧊', '🏷️', '🪧', '🚛', '♻️', '🗑️', '🧮', '☕', '🪑', '🍳', '🍗', '🥩', '🌭', '🍞', '🐟', '📦', '🫓', '🥐', '🍎', '🧴', '↩️'];
+    return h('main', { class: 'screen' }, topbar(isNew ? 'Nueva actividad' : 'Editar actividad', { back: '#/actividades' }),
+      h('form', { class: 'panel form', id: 'activity-form', dataset: { activityId: d.id } },
+        h('label', { for: 'a-name' }, 'Nombre'),
+        h('input', { id: 'a-name', name: 'name', type: 'text', maxlength: '40', value: d.name, required: true }),
+        h('label', { for: 'a-group' }, 'Grupo (aparece como sección en la pantalla principal)'),
+        h('input', { id: 'a-group', name: 'group', type: 'text', maxlength: '30', value: d.group, list: 'a-groups', placeholder: 'Otras actividades' }),
+        h('datalist', { id: 'a-groups' }, groups.map((g) => h('option', { value: g }))),
+        h('label', { for: 'a-kind' }, 'Tipo'),
+        h('select', { id: 'a-kind', name: 'kind' }, Object.entries(Config.KINDS).map(([k, label]) => h('option', { value: k, selected: d.kind === k }, label))),
+        h('p', { class: 'meta' }, 'Una vez: surtido, frenteo. Varias veces: descanso, Taurus, sacar reciclado. Tarimas: solo cuenta tarimas por departamento.'),
+        h('label', { for: 'a-icon' }, 'Icono (un emoji)'),
+        h('input', { id: 'a-icon', name: 'icon', type: 'text', maxlength: '8', value: d.icon, list: 'a-emojis' }),
+        h('datalist', { id: 'a-emojis' }, emojis.map((e) => h('option', { value: e }))),
+        h('label', { for: 'a-color' }, 'Color'),
+        h('select', { id: 'a-color', name: 'color' }, Object.entries(Config.COLORS).map(([k, label]) => h('option', { value: k, selected: d.color === k }, label))),
+        h('fieldset', { class: 'days' }, h('legend', {}, 'Días en que toca (ninguno marcado = todos)'),
+          Config.DAY_LABELS.map(([n, l]) => h('label', { class: 'day', for: `a-day-${n}` }, h('input', { id: `a-day-${n}`, name: `day-${n}`, type: 'checkbox', checked: d.days.includes(Number(n)) }), h('span', {}, l)))),
+        h('label', { class: 'check', for: 'a-opt' }, h('input', { id: 'a-opt', name: 'optional', type: 'checkbox', checked: d.optional }), 'Opcional: no cuenta en el avance del turno'),
+        h('button', { class: 'btn btn-primary btn-big', type: 'submit' }, 'Guardar'),
+        isNew ? null : h('button', { class: 'btn btn-ghost btn-danger-line', type: 'button', dataset: { action: 'delete-activity', id: d.id } }, '🗑 Eliminar actividad')));
+  }
+
+  function viewBlocked() {
+    return h('main', { class: 'screen' }, h('section', { class: 'panel' }, h('h1', {}, 'App abierta en otra ventana'),
+      h('p', {}, 'Para evitar datos duplicados, solo puede haber una ventana activa. Cierra la otra o continúa en ella.'),
+      h('button', { class: 'btn btn-primary', type: 'button', onclick: () => location.reload() }, 'Reintentar')));
+  }
+
+  // ---------- render y rutas ----------
+  function parseRoute() {
+    const parts = (location.hash || '#/').replace(/^#\/?/, '').split('/').filter(Boolean);
+    return { name: parts[0] || 'home', arg: parts[1] ? decodeURIComponent(parts[1]) : null };
+  }
+
+  function mount(content) {
+    const banners = [];
+    if (state.storage.error) banners.push(h('div', { class: 'banner banner-bad', role: 'alert' }, 'No se pudo guardar en el dispositivo. Se reintentará con el siguiente cambio; no cierres la app.'));
+    else if (state.ready && !state.storage.persistent) banners.push(h('div', { class: 'banner banner-bad', role: 'alert' }, 'Sin almacenamiento persistente: los datos se perderán al cerrar la app.'));
+    root.replaceChildren(...banners, content);
+  }
+
+  async function render() {
+    if (!root) return;
+    const token = ++renderToken;
+    const route = parseRoute();
+    const key = `${route.name}/${route.arg || ''}`;
+    const y = global.scrollY;
+    let content;
+    if (!state.ready) content = h('p', { class: 'loading' }, 'Cargando…');
+    else if (route.name === 'actividad') content = viewActivity(route.arg);
+    else if (route.name === 'bitacora') content = viewLog({ shift: state.shift, events: state.events, closed: false, back: '#/' });
+    else if (route.name === 'ajustes') content = viewSettings();
+    else if (route.name === 'actividades') content = viewActivities();
+    else if (route.name === 'editar') content = viewEditActivity(route.arg);
+    else if (route.name === 'historial') content = route.arg ? await viewClosedShift(route.arg) : await viewHistory();
+    else content = viewHome();
+    if (token !== renderToken) return;
+    mount(content);
+    global.scrollTo(0, key === lastRouteKey ? y : 0);
+    lastRouteKey = key;
+  }
+
+  function updateLive() {
+    if (!state.ready) return;
+    for (const el of document.querySelectorAll('[data-live="clock"]')) el.textContent = F.clock(Date.now());
+  }
+
+  // ---------- eventos ----------
+  async function onClick(ev) {
+    const btn = ev.target.closest('[data-action]');
+    if (!btn || btn.disabled) return;
+    const { action, id } = btn.dataset;
+    const report = (r) => { if (r && !r.ok && r.reason) toast(r.reason, 'warn'); return r; };
+    switch (action) {
+      case 'start-shift': report(Store.startShift()); break;
+      case 'end-shift': {
+        const n = Store.runningCount();
+        const okay = await confirmDialog({ title: '¿Finalizar el turno?', message: n ? `Hay ${n} actividad(es) en curso: se cerrarán con la hora de fin del turno. El turno pasará al historial.` : 'El turno pasará al historial y podrás exportarlo desde ahí.', confirmText: 'Finalizar turno', danger: true });
+        if (!okay) break;
+        const r = Store.endShift();
+        if (r.ok) location.hash = `#/historial/${r.shiftId}`; else report(r);
+        break;
+      }
+      case 'open': location.hash = `#/actividad/${id}`; break;
+      case 'inc': report(Store.adjustArrivals(id, 1)); break;
+      case 'dec': report(Store.adjustArrivals(id, -1)); break;
+      case 'set-count': {
+        const v = Store.activityView(id);
+        const n = await numberDialog({ title: `Tarimas de ${v.def.name}`, message: '¿Cuántas tarimas hay en total?', value: v.received });
+        if (n !== null) report(Store.setReceived(id, n));
+        break;
+      }
+      case 'start': { const r = report(Store.startActivity(id)); if (r.ok) location.hash = '#/'; break; }
+      case 'finish': { const r = report(Store.finishActivity(id)); if (r.ok) location.hash = '#/'; break; }
+      case 'cancel': {
+        const okay = await confirmDialog({ title: '¿Cancelar la actividad?', message: 'No se registrará su hora en el reporte; la cancelación queda en la bitácora.', confirmText: 'Cancelar actividad', danger: true });
+        if (okay) { const r = report(Store.cancelActivity(id)); if (r.ok) location.hash = '#/'; }
+        break;
+      }
+      case 'reopen': report(Store.reopenActivity(id)); break;
+      case 'customer': report(Store.toggleCustomer()); break;
+      case 'move-up': report(Store.moveActivity(id, -1)); break;
+      case 'move-down': report(Store.moveActivity(id, 1)); break;
+      case 'delete-activity': {
+        const def = state.settings.activities.find((d) => d.id === id);
+        const okay = await confirmDialog({ title: `¿Eliminar «${def ? def.name : ''}»?`, message: 'Se quita de la lista. Lo ya registrado en turnos y reportes se conserva.', confirmText: 'Eliminar', danger: true });
+        if (okay) { const r = report(Store.deleteActivity(id)); if (r.ok) location.hash = '#/actividades'; }
+        break;
+      }
+      case 'toggle-order': logNewestFirst = !logNewestFirst; render(); break;
+      case 'export': case 'copy-report': await doExport(btn, action === 'copy-report'); break;
+      default: break;
+    }
+  }
+
+  async function doExport(btn, copyOnly) {
+    let shift, events;
+    if (btn.dataset.closed) { const d = await Store.loadClosedShift(btn.dataset.shift); if (!d) { toast('No se encontró el turno', 'bad'); return; } shift = d.shift; events = d.events; }
+    else { shift = state.shift; events = state.events; }
+    if (!shift) { toast('No hay turno para exportar', 'warn'); return; }
+    if (copyOnly) {
+      try { await navigator.clipboard.writeText(T.Export.buildTxt({ shift, events })); toast('Reporte copiado', 'ok'); } catch (_) { toast('No se pudo copiar; usa Exportar', 'warn'); }
+      return;
+    }
+    const format = btn.dataset.format || 'txt';
+    const res = await T.Export.exportShift({ shift, events, format });
+    if (res.cancelled) return;
+    if (!res.ok) { toast(`No se pudo exportar: ${res.error || 'error desconocido'}`, 'bad', 6000); return; }
+    toast(`Exportado: ${res.filename}`, 'ok');
+    if (!btn.dataset.closed) Store.logExport(format, res.filename);
+  }
+
+  function onSubmit(ev) {
+    const form = ev.target;
+    if (form.id === 'settings-form') {
+      ev.preventDefault();
+      const fd = new FormData(form);
+      const r = Store.updateSettings({
+        areaName: String(fd.get('area') || '').trim() || state.settings.areaName,
+        categories: String(fd.get('cats') || '').split(',').map((x) => x.trim()).filter(Boolean),
+      });
+      if (r.ok) { toast('Ajustes guardados', 'ok'); location.hash = '#/'; }
+    } else if (form.id === 'activity-form') {
+      ev.preventDefault();
+      const fd = new FormData(form);
+      const r = Store.saveActivity({
+        id: form.dataset.activityId, name: fd.get('name'), group: fd.get('group'), kind: fd.get('kind'),
+        icon: fd.get('icon'), color: fd.get('color'), optional: fd.get('optional') === 'on',
+        days: Config.DAY_LABELS.map(([n]) => n).filter((n) => fd.get(`day-${n}`) === 'on').map(Number),
+      });
+      if (r.ok) { toast('Actividad guardada', 'ok'); location.hash = '#/actividades'; } else toast(r.reason, 'warn');
+    }
+  }
+
+  function init(el) {
+    root = el;
+    root.addEventListener('click', onClick);
+    root.addEventListener('submit', onSubmit);
+    global.addEventListener('hashchange', render);
+    Store.subscribe(render);
+    render();
+  }
+
+  T.UI = {
+    init, render, updateLive,
+    showBlocked() { mount(viewBlocked()); },
+    showFatal(err) { mount(h('main', { class: 'screen' }, h('section', { class: 'panel' }, h('h1', {}, 'No se pudo iniciar'), h('p', {}, String((err && err.message) || err))))); },
+  };
+})(window);
+
+/* Arranque: instancia única y ciclo de vida de la página. */
+(function (global) {
+  'use strict';
+  const T = (global.Turnos = global.Turnos || {});
+
+  function tryLock() {
+    return new Promise((resolve) => {
+      if (!navigator.locks || !navigator.locks.request) { resolve(true); return; }
+      try {
+        navigator.locks.request('turnos-single-instance', { ifAvailable: true }, (lock) => {
+          resolve(!!lock);
+          return lock ? new Promise(() => {}) : undefined;
+        }).catch(() => resolve(true));
+      } catch (_) { resolve(true); }
+    });
+  }
+  async function acquireLock() {
+    for (let i = 0; i < 3; i++) {
+      if (await tryLock()) return true;
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    return false;
+  }
+
+  async function main() {
+    T.UI.init(document.getElementById('app'));
+    if (!(await acquireLock())) { T.UI.showBlocked(); return; }
+    try { await T.Store.init(); } catch (err) { T.UI.showFatal(err); return; }
+    setInterval(() => T.UI.updateLive(), 15000);
+    if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('./sw.js').catch(() => {});
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { T.UI.updateLive(); T.UI.render(); } });
+  }
+  main();
+})(window);
+</script>
+</body>
+</html>
